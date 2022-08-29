@@ -5,31 +5,20 @@
 package org.ftn.messengerforensics;
 
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.File;
-import java.io.IOException;
-import java.io.StringReader;
-import java.sql.Connection;
-import java.sql.DriverManager;
+
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
+
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import org.sleuthkit.autopsy.ingest.DataSourceIngestModule;
 import java.util.List;
-import java.util.ListIterator;
-import java.util.Map;
-import java.util.Set;
 import java.util.logging.Level;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import org.openide.util.Exceptions;
+
 import org.sleuthkit.autopsy.casemodule.Case;
 import org.sleuthkit.autopsy.casemodule.NoCurrentCaseException;
-import org.sleuthkit.autopsy.casemodule.services.FileManager;
+
 import org.sleuthkit.autopsy.ingest.DataSourceIngestModuleProgress;
 import org.sleuthkit.autopsy.ingest.IngestModule;
 
@@ -37,16 +26,11 @@ import org.sleuthkit.datamodel.TskCoreException;
 
 import org.sleuthkit.autopsy.ingest.DataSourceIngestModule;
 import org.sleuthkit.autopsy.ingest.IngestJobContext;
-import org.sleuthkit.autopsy.ingest.IngestMessage;
-import org.sleuthkit.autopsy.ingest.IngestModuleIngestJobSettings;
-import org.sleuthkit.autopsy.ingest.IngestServices;
 
 import org.sleuthkit.autopsy.coreutils.Logger;
 import org.sleuthkit.autopsy.coreutils.AppSQLiteDB;
-import org.sleuthkit.autopsy.coreutils.MessageNotifyUtil;
 
 import org.sleuthkit.datamodel.*;
-import org.sleuthkit.datamodel.BlackboardAttribute.Type;
 import org.sleuthkit.datamodel.blackboardutils.*;
 import org.sleuthkit.datamodel.blackboardutils.CommunicationArtifactsHelper.CallMediaType;
 import org.sleuthkit.datamodel.blackboardutils.CommunicationArtifactsHelper.CommunicationDirection;
@@ -58,14 +42,12 @@ import org.sleuthkit.datamodel.blackboardutils.attributes.MessageAttachments.URL
  * @author Natasa
  */
 public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
+     private static final String moduleName = MessengerIngestModuleFactory.getModuleName();
     private IngestJobContext context;
-    private final IngestServices services = IngestServices.getInstance();
     private Case currentCase;
-    private FileManager fileManager;
     private Blackboard blackboard;
-    private CommunicationArtifactsHelper communicationArtifactsHelper;
     
-    private Logger logger = Logger.getLogger(MessengerDataSourceIngestModule.class.getName());;
+    private Logger logger = Logger.getLogger(MessengerIngestModuleFactory.getModuleName());;
     private static String FB_MESSENGER_PACKAGE_NAME = "com.facebook.orca";
     private static String MESSAGE_TYPE = "Facebook Messenger";
     private static String VERSION = "";
@@ -73,17 +55,15 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
     private CommunicationArtifactsHelper communicationArtifactsHelperAccounts = null;
     private CommunicationArtifactsHelper communicationArtifactsHelperThreads = null;
 
-    public MessengerDataSourceIngestModule(IngestModuleIngestJobSettings settings){
+    public MessengerDataSourceIngestModule(){
         
     }
-    
     @Override
     public void startUp(IngestJobContext context) throws IngestModuleException {
         this.context = context;
          
          try {
             currentCase = Case.getCurrentCaseThrows();
-            fileManager = Case.getCurrentCaseThrows().getServices().getFileManager();
             blackboard = currentCase.getServices().getArtifactsBlackboard();
             
         } catch (NoCurrentCaseException ex) {
@@ -94,6 +74,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
 
     @Override
     public ProcessResult process(Content content, DataSourceIngestModuleProgress dsimp) {
+        logger.log(Level.INFO,"Started proccessing...");
         dsimp.switchToIndeterminate();
         Collection<AppSQLiteDB> threadsDbs;
         Collection<AppSQLiteDB> searchCacheDbs;
@@ -101,39 +82,86 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
         Collection<AppSQLiteDB> prefsDbs;
          
         try{
-            prefsDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "sprefs_db", false, FB_MESSENGER_PACKAGE_NAME);
-            threadsDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "threads_db2", false,FB_MESSENGER_PACKAGE_NAME);
-            searchCacheDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "search_cache_db2", false,FB_MESSENGER_PACKAGE_NAME);
+
+            prefsDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "prefs_db", true, FB_MESSENGER_PACKAGE_NAME);
+            threadsDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "threads_db2", true,FB_MESSENGER_PACKAGE_NAME);
+            searchCacheDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "search_cache_db", true,FB_MESSENGER_PACKAGE_NAME);
             msysDbs = AppSQLiteDB.findAppDatabases((DataSource) content, "msys_database", false,FB_MESSENGER_PACKAGE_NAME);
+            logger.log(Level.INFO," prefsDbs count: " + prefsDbs.size());
+            logger.log(Level.INFO," threadsDbs count: " + threadsDbs.size());
+            logger.log(Level.INFO," searchCacheDbs count: " + searchCacheDbs.size());
+            logger.log(Level.INFO," msysDbs count " + msysDbs.size());
             
             getAppVersion(prefsDbs, content);
-            extractOwnerFacebookId(msysDbs);
+            logger.log(Level.INFO,"App Version: " + VERSION);
             
-            if(ownerUserId == null){
-                communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(),"module name",content , Account.Type.FACEBOOK);
-            }else{
-                communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(),"module name",content , Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
+            for (AppSQLiteDB msysDb : msysDbs) {
+                logger.log(Level.INFO," DbFilename: " + msysDb.getDBFile().getName());
+                
+                try{
+                    extractOwnerFacebookId(msysDb);
+                    if(communicationArtifactsHelperAccounts == null){
+                        if(ownerUserId == null){  
+                            communicationArtifactsHelperAccounts  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK);
+                        }else{
+                            logger.log(Level.INFO,"ownerUserId: " + ownerUserId);
+                            communicationArtifactsHelperAccounts  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
+                        }
+                    }
+   
+                    analyzeContacts(msysDb);
+                    analyzeStories(msysDb);
+                    
+                    
+                }catch(Exception exception){
+                    logger.log(Level.WARNING, exception.getMessage(), exception);
+                }finally{
+                    msysDb.close();
+                }
             }
-            analyzeContacts(msysDbs);
-            analyzeMessages(threadsDbs, content);
-            analyzeCallLogs(threadsDbs);
-            analyzeSearchItems(searchCacheDbs, content);
-            analyzeRecentSearchItems(searchCacheDbs, content);
             
+            for (AppSQLiteDB threadsDb : threadsDbs) {
+                logger.log(Level.INFO," DbFilename: " + threadsDb.getDBFile().getName());
+                try{
+                    if(communicationArtifactsHelperThreads == null){
+                        if(ownerUserId == null){
+                            communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK);
+                        }else{
+                            communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
+                        }
+                    }
+                    analyzeMessages(threadsDb, content);
+                    analyzeCallLogs(threadsDb);
+                }catch(Exception exception){
+                    logger.log(Level.WARNING, exception.getMessage(), exception);
+                }finally{
+                    threadsDb.close();
+                }
+            }
+            
+            for (AppSQLiteDB searchCacheDb : searchCacheDbs) {
+                logger.log(Level.INFO," DbFilename: " + searchCacheDb.getDBFile().getName());
+                try{
+                   analyzeSearchItems(searchCacheDb, content);
+                    analyzeRecentSearchItems(searchCacheDb, content);
+                }catch(Exception exception){
+                    logger.log(Level.WARNING, exception.getMessage(), exception);
+                }finally{
+                    searchCacheDb.close();
+                }
+            }
+            
+            logger.log(Level.INFO,"Finished proccessing...");
             return IngestModule.ProcessResult.OK;
             
         }catch(Exception exception){
-             logger.log(Level.SEVERE,exception.getMessage() ,exception);
+             logger.log(Level.SEVERE,exception.getMessage(), exception);
              return IngestModule.ProcessResult.ERROR;
         }
     }
 
-    @Override
-    public void shutDown() {
-        DataSourceIngestModule.super.shutDown();
-    }
     private void getAppVersion(Collection<AppSQLiteDB> prefsDbs, Content content) throws TskCoreException{
-        
+        logger.log(Level.INFO,"Method start: getAppVersion");
         String query = "SELECT key, type, value FROM preferences WHERE key LIKE '%app_version_name_current%'";
         
         for (AppSQLiteDB appSQLiteDB : prefsDbs){      
@@ -150,16 +178,16 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
             }finally{
                 appSQLiteDB.close();
             }
-        } 
+        }
+        logger.log(Level.INFO,"Method end: getAppVersion");
     }
     
-    public void analyzeContacts(Collection<AppSQLiteDB> msysDbs) {
-        String query = "select id, name, profile_picture_url, phone_number, email_address, work_company_name, birthday_timestamp, username, "
-                + "blocked_by_viewer_status, blocled_since_timestamp_ms from contacts";  
-        for (AppSQLiteDB appSQLiteDB : msysDbs){
+    private void analyzeContacts(AppSQLiteDB msysDb) {
+        logger.log(Level.INFO,"Method start: analyzeContacts");
+        String query = "select id, name, profile_picture_url, phone_number, email_address, work_company_name, birthday_timestamp, username, blocked_by_viewer_status, blocked_since_timestamp_ms from contacts";
             
             try{
-                ResultSet resultSet = appSQLiteDB.runQuery(query);
+                ResultSet resultSet = msysDb.runQuery(query);
             
                 if(resultSet != null){
                     
@@ -173,14 +201,14 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                              blockedBy = "UNKNOWN";
                         }
                         
-                        long blockedSince = resultSet.getLong("blocled_since_timestamp_ms") / 1000;
+                        long blockedSince = resultSet.getLong("blocked_since_timestamp_ms") / 1000;
                         
                         ArrayList<BlackboardAttribute> additionalAttributes = new ArrayList<>();
        
-                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, "module_Name", resultSet.getString("id")));  
-                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_NAME, "module_Name", resultSet.getString("username")));
-                        additionalAttributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, "module_name", resultSet.getString("profile_picture_url")));
-                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DATETIME, "module_Name", blockedSince));
+                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, resultSet.getString("id")));  
+                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_NAME, moduleName, resultSet.getString("username")));
+                        additionalAttributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, resultSet.getString("profile_picture_url")));
+                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DATETIME, moduleName, blockedSince));
                         
                         BlackboardAttribute.Type workCompanyAttributeType = currentCase.getSleuthkitCase().getAttributeType("WORK_COMPANY_NAME");
                         if (workCompanyAttributeType == null) {
@@ -194,8 +222,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                                                 BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING, "Blocked by");
                         }
                         
-                        additionalAttributes.add( new BlackboardAttribute(workCompanyAttributeType, "module_name", resultSet.getString("work_company_name")));
-                        additionalAttributes.add( new BlackboardAttribute(blockedAttributeType, "module_name", blockedBy));
+                        additionalAttributes.add( new BlackboardAttribute(workCompanyAttributeType, moduleName, resultSet.getString("work_company_name")));
+                        additionalAttributes.add( new BlackboardAttribute(blockedAttributeType, moduleName, blockedBy));
                         
                         
                          communicationArtifactsHelperAccounts.addContact(resultSet.getString("name"), 
@@ -216,20 +244,15 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
             } catch (Blackboard.BlackboardException exception) {
                 logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
             }
-            finally{
-                appSQLiteDB.close();
-            }
-        }
+        logger.log(Level.INFO,"Method end: analyzeContacts");
     }
     
-    public void analyzeRecentSearchItems(Collection<AppSQLiteDB> searchCacheDbs, Content content) {
-
+    private void analyzeRecentSearchItems(AppSQLiteDB searchCacheDb, Content content) {
+        logger.log(Level.INFO,"Method start: analyzeRecentSearchItems");
         String query = "select fbid, item_type, display_name, first_name, last_name, picture_url, most_recent_pick_time_ms, total_pick_count from recent_search_items";
-        
-        for (AppSQLiteDB appSQLiteDB : searchCacheDbs){
-            
+
             try{
-                ResultSet searchItemsSet = appSQLiteDB.runQuery(query);
+                ResultSet searchItemsSet = searchCacheDb.runQuery(query);
             
                 if(searchItemsSet != null){
                      ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
@@ -242,9 +265,9 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         String lastname = searchItemsSet.getString("last_name");
                         String pictureUrl = searchItemsSet.getString("picture_url");
 
-                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ID, "module_Name", fbid));
-                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, "module_name",displayName + " - " + firstName + " " +lastname));
-                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, "module_name", pictureUrl));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, fbid));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName,displayName + " - " + firstName + " " +lastname));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, pictureUrl));
 
                         BlackboardAttribute.Type itemTypeAttributeType = currentCase.getSleuthkitCase().getAttributeType("ITEM_TYPE");
                         if (itemTypeAttributeType == null) {
@@ -252,7 +275,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                                                 BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING, "Item type");
                         }
                         
-                        attributes.add( new BlackboardAttribute(itemTypeAttributeType, "module_name", itemType));
+                        attributes.add( new BlackboardAttribute(itemTypeAttributeType, moduleName, itemType));
                         
                     }
                      
@@ -261,7 +284,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                              "RECENT_SEARCH_ITEMS", "Recent Search Items", BlackboardArtifact.Category.DATA_ARTIFACT);
 
                     BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
-                    blackboard.postArtifact(artifact, "module_name");
+                    blackboard.postArtifact(artifact, moduleName);
                      
                 }
                 
@@ -274,15 +297,11 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
             }catch(Blackboard.BlackboardException exception){
                 logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
             }
-            finally{
-                appSQLiteDB.close();
-            }
-        }
-           
-          
+        
+        logger.log(Level.INFO,"Method end: analyzeRecentSearchItems");
     }
     
-    public CommunicationDirection findCommunicationDirection(String senderId){
+    private CommunicationDirection findCommunicationDirection(String senderId){
         CommunicationDirection direction = CommunicationDirection.UNKNOWN;
         if(senderId != null){
             if (senderId != ownerUserId){
@@ -332,24 +351,12 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
         return recepient;
     }
     
-    private void analyzeMessages(Collection<AppSQLiteDB> threadsDbs, Content content) throws TskCoreException, Blackboard.BlackboardException{
-            for (AppSQLiteDB appSQLiteDB : threadsDbs) {
-
+    private void analyzeMessages(AppSQLiteDB threadsDb, Content content) throws TskCoreException, Blackboard.BlackboardException{
+        logger.log(Level.INFO,"Method start: analyzeMessages");
                 try{
-
-                     if(ownerUserId == null){
-                        communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(),"module name",content , Account.Type.FACEBOOK);
-                     }else{
-                         communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(),"module name",content , Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
-                     }
-                         
-                     String query = "SELECT msg_id, text, sender, datetime(timestamp_ms, 'unixepoch') 'timestamp', msg_type, messages.thread_key as thread_key," +
-                                    "snippet, thread_participants.user_key as user_key, thread_users.name as name," +
-                                    "attachments, pending_send_media_attachment FROM messages" +
-                                    "JOIN thread_participants ON messages.thread_key = thread_participants.thread_key" +
-                                    "JOIN thread_users ON thread_participants.user_key = thread_users.user_key " +
-                                    "WHERE msg_type not in (9, 203) ORDER BY msg_id";
-                    ResultSet threadsResultSet = appSQLiteDB.runQuery(query);
+                 
+                    String query = "SELECT msg_id, text, sender, shares, timestamp_ms, msg_type, messages.thread_key as thread_key, snippet, thread_participants.user_key as user_key, thread_users.name as name, attachments, pending_send_media_attachment FROM messages JOIN thread_participants ON messages.thread_key = thread_participants.thread_key JOIN thread_users ON thread_participants.user_key = thread_users.user_key WHERE msg_type not in (9, 203) ORDER BY msg_id";
+                    ResultSet threadsResultSet = threadsDb.runQuery(query);
                      
                     String oldMsgId = null;
 
@@ -363,6 +370,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                     String attachment = "";
                     String pendingSendMediaAttachment = "";
                     String senderName = "";
+                    String shares = "";
+                    String snnipet = "";
                     
                     while (threadsResultSet.next()) {
                         String msgId = threadsResultSet.getString("msg_id");
@@ -388,7 +397,9 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                             senderName = extractSenderName(threadsResultSet.getString("sender"));
 
                             direction = findCommunicationDirection(fromId);
-                            String text = threadsResultSet.getString("text").trim() == "" ? threadsResultSet.getString("snippet") : threadsResultSet.getString("text");
+                            msgText = threadsResultSet.getString("text") != null ?  threadsResultSet.getString("text") : "";
+                            snnipet = threadsResultSet.getString("snippet") != null ? threadsResultSet.getString("snippet"): "";
+                            shares = threadsResultSet.getString("shares") != null ? threadsResultSet.getString("shares") : "";
                             attachment = threadsResultSet.getString("attachments");
                             pendingSendMediaAttachment = threadsResultSet.getString("pending_send_media_attachment");
    
@@ -464,8 +475,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                     
                     }
                     
-                    communicationArtifactsHelperThreads.addMessage(MESSAGE_TYPE, direction, fromId, recipientIdsList,timeStamp,
-                                                                   CommunicationArtifactsHelper.MessageReadStatus.UNKNOWN, "", msgText, threadId);
+//                    communicationArtifactsHelperThreads.addMessage(MESSAGE_TYPE, direction, fromId, recipientIdsList,timeStamp,
+//                                                                   CommunicationArtifactsHelper.MessageReadStatus.UNKNOWN, "", msgText, threadId);
 
                       
                 }catch(SQLException exception){
@@ -474,13 +485,14 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                     logger.log(Level.SEVERE, "Failed to add FB Messenger message artifacts." ,exception);
                 }catch(Blackboard.BlackboardException exception){
                     logger.log(Level.SEVERE, "Failed to post artifacts." ,exception);
-                }finally{
-                        appSQLiteDB.close();
-                    }    
                 }
+                
+                logger.log(Level.INFO,"Method end: analyzeMessages");
+                
     }
     
-    private void analyzeCallLogs(Collection<AppSQLiteDB> threadsDbs){
+    private void analyzeCallLogs(AppSQLiteDB threadsDb){
+        logger.log(Level.INFO,"Method START: analyzeCallLogs");
         /*
         msg_type indicates type of call:
             9: one to one calls
@@ -490,16 +502,11 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
         all the data we need can be found in the call_ended record.
         */
             
-        String query = "SELECT msg_id, text, sender, timestamp_ms, msg_type, admin_text_thread_rtc_event, generic_admin_message_extensible_data, "+
-                       "messages.thread_key as thread_key, thread_participants.user_key as user_key, thread_users.name as name " +
-                       "FROM messages JOIN thread_participants ON messages.thread_key = thread_participants.thread_key "+
-                       "JOIN thread_users ON thread_participants.user_key = thread_users.user_key WHERE msg_type = 9 OR (msg_type = 203 AND admin_text_thread_rtc_event = 'group_call_ended') " +
-                       "ORDER BY msg_id";
+        String query = "SELECT msg_id, text, sender, timestamp_ms, msg_type, admin_text_thread_rtc_event, generic_admin_message_extensible_data, messages.thread_key as thread_key, thread_participants.user_key as user_key, thread_users.name as name FROM messages JOIN thread_participants ON messages.thread_key = thread_participants.thread_key JOIN thread_users ON thread_participants.user_key = thread_users.user_key WHERE msg_type = 9 OR (msg_type = 203 AND admin_text_thread_rtc_event = 'group_call_ended') ORDER BY msg_id";
         
-        for (AppSQLiteDB appSQLiteDB : threadsDbs){
             
-            try{
-                            ResultSet messagesResultSet = appSQLiteDB.runQuery(query);
+        try{
+            ResultSet messagesResultSet = threadsDb.runQuery(query);
             
             if(messagesResultSet != null){
                 String oldMsgId = null;
@@ -568,13 +575,13 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                      
                  }
                  
-                 BlackboardArtifact messageArtifact = communicationArtifactsHelperThreads.addCalllog( 
+                 /*BlackboardArtifact messageArtifact = communicationArtifactsHelperThreads.addCalllog( 
                                                         direction,
                                                         callerId,
                                                         calleeIdsList,
                                                         startTimeStamp,
                                                         endTimeStamp,
-                                                        mediaType);
+                                                        mediaType);*/
                 
                 
             }
@@ -586,23 +593,17 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
             }catch(Blackboard.BlackboardException exception){
                 logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
             }
-            finally{
-                appSQLiteDB.close();
-            }
-
         
-        }
+        logger.log(Level.INFO,"Method end: analyzeCallLogs");
  
     }
     
-    private void analyzeSearchItems(Collection<AppSQLiteDB> searchCacheDbs, Content content) throws TskDataException{
-        
+    private void analyzeSearchItems(AppSQLiteDB searchCacheDb, Content content) throws TskDataException{
+        logger.log(Level.INFO,"Method start: analyzeSearchItems");
         String query = "select fbid, item_type, display_name, first_name, last_name, picture_url from search_items";
-        
-        for (AppSQLiteDB appSQLiteDB : searchCacheDbs){
-            
+ 
             try{
-                ResultSet searchItemsSet = appSQLiteDB.runQuery(query);
+                ResultSet searchItemsSet = searchCacheDb.runQuery(query);
             
                 if(searchItemsSet != null){
                      ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
@@ -615,9 +616,9 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         String lastname = searchItemsSet.getString("last_name");
                         String pictureUrl = searchItemsSet.getString("picture_url");
 
-                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ID, "module_Name", fbid));
-                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, "module_name",displayName + " - " + firstName + " " +lastname));
-                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, "module_name", pictureUrl));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ID, moduleName, fbid));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName, displayName + " - " + firstName + " " +lastname));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, pictureUrl));
 
                         BlackboardAttribute.Type itemTypeAttributeType = currentCase.getSleuthkitCase().getAttributeType("ITEM_TYPE");
                         if (itemTypeAttributeType == null) {
@@ -625,7 +626,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                                                 BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING, "Item type");
                         }
                         
-                        attributes.add( new BlackboardAttribute(itemTypeAttributeType, "module_name", itemType));
+                        attributes.add( new BlackboardAttribute(itemTypeAttributeType, moduleName, itemType));
                         
                     }
                      
@@ -634,7 +635,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                              "SEARCH_ITEMS", "Search Items", BlackboardArtifact.Category.DATA_ARTIFACT);
 
                     BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
-                    blackboard.postArtifact(artifact, "module_name");
+                    blackboard.postArtifact(artifact, moduleName);
                      
                 }
                 
@@ -647,22 +648,19 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
             }catch(Blackboard.BlackboardException exception){
                 logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
             }
-            finally{
-                appSQLiteDB.close();
-            }
-        }
+        
+        logger.log(Level.INFO,"Method END: analyzeSearchItems");
     }
     
-    private void analyzeStories(Collection<AppSQLiteDB> msysDbs){
+    private void analyzeStories(AppSQLiteDB msysDb){
         
     }
     
-    private void extractOwnerFacebookId(Collection<AppSQLiteDB> msysDbs){
+    private void extractOwnerFacebookId(AppSQLiteDB msysDb){
+        logger.log(Level.INFO,"Method start: extractOwnerFacebookId");
         String query = "select id, facebook_user_id from _user_info";  
-        for (AppSQLiteDB appSQLiteDB : msysDbs){
-            
             try{
-                ResultSet resultSet = appSQLiteDB.runQuery(query);
+                ResultSet resultSet = msysDb.runQuery(query);
             
                 if(resultSet != null){
                     
@@ -672,9 +670,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 }          
             }catch(SQLException exception){
                 logger.log(Level.WARNING, exception.getMessage() ,exception);
-            }finally{
-                appSQLiteDB.close();
             }
-        }
+        
+        logger.log(Level.INFO,"Method end: extractOwnerFacebookId");
     }  
 }
