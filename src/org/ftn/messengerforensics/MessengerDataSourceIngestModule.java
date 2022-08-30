@@ -100,17 +100,17 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 
                 try{
                     extractOwnerFacebookId(msysDb);
-                    if(communicationArtifactsHelperAccounts == null){
-                        if(ownerUserId == null){  
-                            communicationArtifactsHelperAccounts  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK);
-                        }else{
-                            logger.log(Level.INFO,"ownerUserId: " + ownerUserId);
-                            communicationArtifactsHelperAccounts  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
-                        }
-                    }
-   
-                    analyzeContacts(msysDb);
-                    analyzeStories(msysDb);
+//                    if(communicationArtifactsHelperAccounts == null){
+//                        if(ownerUserId == null){  
+//                            communicationArtifactsHelperAccounts  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK);
+//                        }else{
+//                            logger.log(Level.INFO,"ownerUserId: " + ownerUserId);
+//                            communicationArtifactsHelperAccounts  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
+//                        }
+//                    }
+//   
+                    analyzeContacts(msysDb, content);
+                    analyzeStories(msysDb, content);
                     
                     
                 }catch(Exception exception){
@@ -130,7 +130,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                             communicationArtifactsHelperThreads  = new CommunicationArtifactsHelper(currentCase.getSleuthkitCase(), moduleName, content, Account.Type.FACEBOOK,  Account.Type.FACEBOOK, ownerUserId);
                         }
                     }
-                    analyzeMessages(threadsDb, content);
+                    //analyzeMessages(threadsDb, content);
                     analyzeCallLogs(threadsDb);
                 }catch(Exception exception){
                     logger.log(Level.WARNING, exception.getMessage(), exception);
@@ -182,7 +182,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
         logger.log(Level.INFO,"Method end: getAppVersion");
     }
     
-    private void analyzeContacts(AppSQLiteDB msysDb) {
+    private void analyzeContacts(AppSQLiteDB msysDb, Content content) {
         logger.log(Level.INFO,"Method start: analyzeContacts");
         String query = "select id, name, profile_picture_url, phone_number, email_address, work_company_name, birthday_timestamp, username, blocked_by_viewer_status, blocked_since_timestamp_ms from contacts";
             
@@ -190,7 +190,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 ResultSet resultSet = msysDb.runQuery(query);
             
                 if(resultSet != null){
-                    
+                    Collection<BlackboardArtifact> artifacts= new ArrayList<>();
                      while (resultSet.next()){
                         String email = resultSet.getString("email_address")!= null ? resultSet.getString("email_address") : "";
                         String phoneNumber = resultSet.getString("phone_number") != null ? resultSet.getString("phone_number") : "";
@@ -203,12 +203,13 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         
                         long blockedSince = resultSet.getLong("blocked_since_timestamp_ms") / 1000;
                         
-                        ArrayList<BlackboardAttribute> additionalAttributes = new ArrayList<>();
+                        ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
        
-                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, resultSet.getString("id")));  
-                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_NAME, moduleName, resultSet.getString("username")));
-                        additionalAttributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, resultSet.getString("profile_picture_url")));
-                        additionalAttributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DATETIME, moduleName, blockedSince));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, resultSet.getString("id")));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME, moduleName, resultSet.getString("name")));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_NAME, moduleName, resultSet.getString("username")));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, resultSet.getString("profile_picture_url")));
+                        
                         
                         BlackboardAttribute.Type workCompanyAttributeType = currentCase.getSleuthkitCase().getAttributeType("WORK_COMPANY_NAME");
                         if (workCompanyAttributeType == null) {
@@ -222,18 +223,23 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                                                 BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING, "Blocked by");
                         }
                         
-                        additionalAttributes.add( new BlackboardAttribute(workCompanyAttributeType, moduleName, resultSet.getString("work_company_name")));
-                        additionalAttributes.add( new BlackboardAttribute(blockedAttributeType, moduleName, blockedBy));
+                        attributes.add( new BlackboardAttribute(workCompanyAttributeType, moduleName, resultSet.getString("work_company_name") != null ? resultSet.getString("work_company_name"): "" ));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DATETIME, moduleName, blockedSince));
+                        attributes.add( new BlackboardAttribute(blockedAttributeType, moduleName, blockedBy));
                         
-                        
-                         communicationArtifactsHelperAccounts.addContact(resultSet.getString("name"), 
-                                                    phoneNumber,
-                                                    "", 
-                                                    "",
-                                                    email,	       
-                                                    additionalAttributes);
+//                         communicationArtifactsHelperAccounts.addContact(resultSet.getString("name"),
+//                                                    phoneNumber,
+//                                                    "",
+//                                                    "",
+//                                                    email,
+//                                                    additionalAttributes);
+                        BlackboardArtifact artifact = content.newDataArtifact(BlackboardArtifact.Type.TSK_CONTACT, attributes);
+                        artifacts.add(artifact);
+                       
                         
                     }
+                     
+                      blackboard.postArtifacts(artifacts, moduleName);
                 }          
             }catch(SQLException exception){
                 logger.log(Level.WARNING, exception.getMessage(), exception);
@@ -537,6 +543,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
 
                         oldMsgId = msgId;
                         
+                        // FIX THIS!
                         callerId = extractSenderId(messagesResultSet.getString("sender"));
                         senderName = extractSenderName(messagesResultSet.getString("sender"));
 
@@ -547,6 +554,11 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         if(callerId != recepientId){
                             calleeIdsList.add(recepientId);
                         }
+                        logger.log(Level.INFO,"msgId: " + msgId);
+                        logger.log(Level.INFO,"callerId: " + callerId);
+                        logger.log(Level.INFO,"senderName: " + senderName);
+                        logger.log(Level.INFO,"direction: " + direction);
+                        logger.log(Level.INFO,"recepientId: " + recepientId);
                         
                         String json = messagesResultSet.getString("generic_admin_message_extensible_data");
                         if(json != null && json.trim() != ""){
@@ -575,13 +587,13 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                      
                  }
                  
-                 /*BlackboardArtifact messageArtifact = communicationArtifactsHelperThreads.addCalllog( 
+                 BlackboardArtifact callLogArtifact = communicationArtifactsHelperThreads.addCalllog( 
                                                         direction,
                                                         callerId,
                                                         calleeIdsList,
                                                         startTimeStamp,
                                                         endTimeStamp,
-                                                        mediaType);*/
+                                                        mediaType);
                 
                 
             }
@@ -617,7 +629,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         String pictureUrl = searchItemsSet.getString("picture_url");
 
                         attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ID, moduleName, fbid));
-                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName, displayName + " - " + firstName + " " +lastname));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName, displayName));
                         attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, pictureUrl));
 
                         BlackboardAttribute.Type itemTypeAttributeType = currentCase.getSleuthkitCase().getAttributeType("ITEM_TYPE");
@@ -652,8 +664,61 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
         logger.log(Level.INFO,"Method END: analyzeSearchItems");
     }
     
-    private void analyzeStories(AppSQLiteDB msysDb){
+    private void analyzeStories(AppSQLiteDB msysDb, Content content){
+        logger.log(Level.INFO, "Method start: analyzeStories");
+        String query = "select story_id, author_id, timestamp_ms, text, media_url, media_playable_url from stories";
+ 
+            try{
+                ResultSet searchItemsSet = msysDb.runQuery(query);
+                   
+                if(searchItemsSet != null){
+                    ArrayList<BlackboardArtifact> artifacts = new ArrayList<>();
+                    ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
+
+                    while (searchItemsSet.next()){
+                        String id = searchItemsSet.getString("story_id");
+                        String author_id = searchItemsSet.getString("author_id");
+                        long timestamp = searchItemsSet.getLong("timestamp_ms")/1000;
+                        String text = searchItemsSet.getString("text");
+                        String media_url = searchItemsSet.getString("media_url");
+                        String media_playable_url = searchItemsSet.getString("media_playable_url");
+
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ID, moduleName, id));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, author_id));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_TEXT, moduleName, text != null ? text: ""));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, media_url != null ? media_url : ""));
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DATETIME, moduleName, timestamp));
+
+                        BlackboardAttribute.Type attributeType = currentCase.getSleuthkitCase().getAttributeType("MEDIA_PLAYABLE_URL");
+                        if (attributeType == null) {
+                                attributeType = currentCase.getSleuthkitCase().addArtifactAttributeType("MEDIA_PLAYABLE_URL", 
+                                                BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING, "media playable urle");
+                        }
+                        
+                        attributes.add( new BlackboardAttribute(attributeType, moduleName, media_playable_url));
+                        
+                        BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
+                             "FB_STORY", "Facebook Story", BlackboardArtifact.Category.DATA_ARTIFACT);
+
+                    BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
+                    artifacts.add(artifact);
+                    
+                    }
+                     
+                    blackboard.postArtifacts(artifacts, moduleName);   
+                }
+                
+            }catch(SQLException exception){
+                logger.log(Level.SEVERE, exception.getMessage() ,exception);
+            }catch(TskDataException exception){
+                logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
+            }catch(TskCoreException exception){
+                logger.log(Level.SEVERE, "Failed to add FB Messenger call log artifacts.", exception);
+            }catch(Blackboard.BlackboardException exception){
+                logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
+            }
         
+        logger.log(Level.INFO,"Method END: analyzeStories");
     }
     
     private void extractOwnerFacebookId(AppSQLiteDB msysDb){
