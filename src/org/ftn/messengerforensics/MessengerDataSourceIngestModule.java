@@ -109,8 +109,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
 //                        }
 //                    }
 //   
-                    analyzeContacts(msysDb, content);
-                    analyzeStories(msysDb, content);
+                    //analyzeContacts(msysDb, content);
+                    //analyzeStories(msysDb, content);
                     
                     
                 }catch(Exception exception){
@@ -143,7 +143,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 logger.log(Level.INFO," DbFilename: " + searchCacheDb.getDBFile().getName());
                 try{
                    analyzeSearchItems(searchCacheDb, content);
-                    analyzeRecentSearchItems(searchCacheDb, content);
+                   analyzeRecentSearchItems(searchCacheDb, content);
                 }catch(Exception exception){
                     logger.log(Level.WARNING, exception.getMessage(), exception);
                 }finally{
@@ -190,7 +190,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 ResultSet resultSet = msysDb.runQuery(query);
             
                 if(resultSet != null){
-                    Collection<BlackboardArtifact> artifacts= new ArrayList<>();
+                    Collection<BlackboardArtifact> artifacts = new ArrayList<>();
                      while (resultSet.next()){
                         String email = resultSet.getString("email_address")!= null ? resultSet.getString("email_address") : "";
                         String phoneNumber = resultSet.getString("phone_number") != null ? resultSet.getString("phone_number") : "";
@@ -261,7 +261,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 ResultSet searchItemsSet = searchCacheDb.runQuery(query);
             
                 if(searchItemsSet != null){
-                     ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
+                    ArrayList<BlackboardArtifact> artifacts = new ArrayList<>();
+                    ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
 
                      while (searchItemsSet.next()){
                         String fbid = searchItemsSet.getString("fbid");
@@ -272,7 +273,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         String pictureUrl = searchItemsSet.getString("picture_url");
 
                         attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, fbid));
-                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName,displayName + " - " + firstName + " " +lastname));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName, displayName));
                         attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_URL, moduleName, pictureUrl));
 
                         BlackboardAttribute.Type itemTypeAttributeType = currentCase.getSleuthkitCase().getAttributeType("ITEM_TYPE");
@@ -282,15 +283,17 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         }
                         
                         attributes.add( new BlackboardAttribute(itemTypeAttributeType, moduleName, itemType));
+                         //TODO: Add attributes for most_recent_pick_time_ms, total_pick_count
+                        BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
+                             "RECENT_SEARCH_ITEMS", "Recent Search Items", BlackboardArtifact.Category.DATA_ARTIFACT);
+
+                        BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
+                        artifacts.add(artifact);
                         
                     }
                      
-                     //TODO: Add attributes for most_recent_pick_time_ms, total_pick_count
-                    BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
-                             "RECENT_SEARCH_ITEMS", "Recent Search Items", BlackboardArtifact.Category.DATA_ARTIFACT);
-
-                    BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
-                    blackboard.postArtifact(artifact, moduleName);
+                    
+                    blackboard.postArtifacts(artifacts, moduleName);
                      
                 }
                 
@@ -321,9 +324,12 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
     }
     
     private String extractSenderId(String json){
+        logger.log(Level.INFO,"Method start: extractSenderId");
+        logger.log(Level.INFO,json);
         String senderId = "";
         if(json != null && json != ""){
-            Pattern pattern = Pattern.compile("(?i).*\\\"user.key\\\":\\\"FACEBOOK:(\\d+)\\\"");
+            
+            Pattern pattern = Pattern.compile(".*FACEBOOK:(\\d+).*");
             Matcher matcher = pattern.matcher(json);
             if (matcher.matches()) {
                 senderId = matcher.group(1);
@@ -332,16 +338,47 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
         return senderId;
     }
     
+    private String extractSenderEmail(String json){
+    logger.log(Level.INFO,"Method start: extractSenderEmail");
+    logger.log(Level.INFO,json);
+    String senderEmail = "";
+    if(json != null && json != ""){
+
+         Pattern pattern = Pattern.compile(".*email\":\"?(.*?)\"?,\".*");
+        Matcher matcher = pattern.matcher(json);
+        if (matcher.matches()) {
+            senderEmail = matcher.group(1);
+        }
+     }
+        return senderEmail;
+    }
+    
     private String extractSenderName(String json){
+        logger.log(Level.INFO,"Method start: extractSenderName");
+        logger.log(Level.INFO,json);
         String senderName = "";
         if(json != null && json != ""){
-            Pattern pattern = Pattern.compile("(?i)\\\"name\\\":\\\"(\\w+\\s*\\w*)\\\"");
+            Pattern pattern = Pattern.compile(".*name\":\"?(.*?)\"?,\".*");
             Matcher matcher = pattern.matcher(json);
             if (matcher.matches()) {
                 senderName = matcher.group(1);
             }
          }
         return senderName;
+    }
+    
+    private String extractSenderPhone(String json){
+        logger.log(Level.INFO,"Method start: extractSenderName");
+        logger.log(Level.INFO,json);
+        String senderPhone = "";
+        if(json != null && json != ""){
+           Pattern pattern = Pattern.compile(".*phone\":\"?(.*?)\"?,\".*");
+            Matcher matcher = pattern.matcher(json);
+            if (matcher.matches()) {
+                senderPhone = matcher.group(1);
+            }
+         }
+        return senderPhone;
     }
     
     private String extractRecepientId(String user_key, String senderId){
@@ -388,6 +425,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                                 BlackboardArtifact messageArtifact = communicationArtifactsHelperThreads.addMessage(MESSAGE_TYPE, direction, fromId, recipientIdsList,timeStamp,
                                                                      CommunicationArtifactsHelper.MessageReadStatus.UNKNOWN, "", msgText, threadId);
 
+                                recipientIdsList = new ArrayList<>();
                                 if(messageAttachments != null){
                                      communicationArtifactsHelperThreads.addAttachments(messageArtifact, messageAttachments);
                                      messageAttachments = null;
@@ -515,10 +553,12 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
             ResultSet messagesResultSet = threadsDb.runQuery(query);
             
             if(messagesResultSet != null){
+                
+                ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
+
                 String oldMsgId = null;
                 CommunicationDirection direction = CommunicationDirection.UNKNOWN;
                 String callerId = null;
-                String senderName = null;
                 ArrayList<String> calleeIdsList = new ArrayList<>();
                 long startTimeStamp = -1;
                 long endTimeStamp = -1;
@@ -536,17 +576,15 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                                                         calleeIdsList,
                                                         startTimeStamp,
                                                         endTimeStamp,
-                                                        mediaType);
+                                                        mediaType,
+                                                        attributes);
 
-                            
+                            calleeIdsList = new ArrayList<>();
                         }
 
                         oldMsgId = msgId;
                         
-                        // FIX THIS!
                         callerId = extractSenderId(messagesResultSet.getString("sender"));
-                        senderName = extractSenderName(messagesResultSet.getString("sender"));
-
                         direction = findCommunicationDirection(callerId);
                         endTimeStamp = messagesResultSet.getLong("timestamp_ms") / 1000;
                         
@@ -554,21 +592,31 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         if(callerId != recepientId){
                             calleeIdsList.add(recepientId);
                         }
+                        String senderName = extractSenderName(messagesResultSet.getString("sender"));
+                        String senderEmail = extractSenderEmail(messagesResultSet.getString("sender"));
+                        String senderPhone = extractSenderPhone(messagesResultSet.getString("sender"));
+                        
                         logger.log(Level.INFO,"msgId: " + msgId);
                         logger.log(Level.INFO,"callerId: " + callerId);
-                        logger.log(Level.INFO,"senderName: " + senderName);
                         logger.log(Level.INFO,"direction: " + direction);
                         logger.log(Level.INFO,"recepientId: " + recepientId);
+                        logger.log(Level.INFO,"senderName: " + senderName);
+                        logger.log(Level.INFO,"senderEmail: " + senderEmail);
+                        logger.log(Level.INFO,"senderPhone: " + senderPhone);
+                        
+                        attributes.add( new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_EMAIL_FROM, moduleName, senderEmail));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_NAME_PERSON, moduleName, senderName));
+                        attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_PHONE_NUMBER_FROM, moduleName, senderPhone));
                         
                         String json = messagesResultSet.getString("generic_admin_message_extensible_data");
                         if(json != null && json.trim() != ""){
-                            Pattern pattern = Pattern.compile("\\\"call_duration\\\":(\\d+),");
+                            Pattern pattern = Pattern.compile("\"call_duration\":(\\d+),");
                             Matcher matcher = pattern.matcher(json);
                             if (matcher.matches()) {
                                 duration = Integer.parseInt(matcher.group(1));
                             }
                             
-                            pattern = Pattern.compile("\\\"video\\\":(\\w+),");
+                            pattern = Pattern.compile("\"video\":(\\w+),");
                             matcher = pattern.matcher(json);
                              if (matcher.matches()) {
                                mediaType = matcher.group(1).toLowerCase() == "true" ? CallMediaType.VIDEO : CallMediaType.AUDIO;
@@ -618,9 +666,10 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                 ResultSet searchItemsSet = searchCacheDb.runQuery(query);
             
                 if(searchItemsSet != null){
-                     ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
+                    ArrayList<BlackboardArtifact> artifacts = new ArrayList<>();
+                    ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
 
-                     while (searchItemsSet.next()){
+                    while (searchItemsSet.next()){
                         String fbid = searchItemsSet.getString("fbid");
                         String itemType = searchItemsSet.getString("item_type");
                         String displayName = searchItemsSet.getString("display_name");
@@ -639,15 +688,14 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         }
                         
                         attributes.add( new BlackboardAttribute(itemTypeAttributeType, moduleName, itemType));
-                        
-                    }
-                     
-                     
-                    BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
+                        BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
                              "SEARCH_ITEMS", "Search Items", BlackboardArtifact.Category.DATA_ARTIFACT);
 
-                    BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
-                    blackboard.postArtifact(artifact, moduleName);
+                        BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
+                        artifacts.add(artifact);
+                    }
+
+                    blackboard.postArtifacts(artifacts, moduleName);
                      
                 }
                 
@@ -700,8 +748,8 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule{
                         BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
                              "FB_STORY", "Facebook Story", BlackboardArtifact.Category.DATA_ARTIFACT);
 
-                    BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
-                    artifacts.add(artifact);
+                        BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
+                        artifacts.add(artifact);
                     
                     }
                      
