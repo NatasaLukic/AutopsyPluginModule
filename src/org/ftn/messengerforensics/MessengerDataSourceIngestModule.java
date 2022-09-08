@@ -438,10 +438,10 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
                     List<URLAttachment> urlAttachments = new ArrayList<>();
                     List<FileAttachment> fileAttachments = new ArrayList<>();
-
+//[{"id":"343651987283990","fbid":"343651987283990","mime_type":"text/plain","filename":"Program.cs","file_size":1542}]
                     if (attachment != null || pendingSendMediaAttachment != null) {
                         if (attachment != null) {
-                            Pattern pattern = Pattern.compile("(?i)\"mime_type\":\"(\\w+/\\w*)\",");
+                            Pattern pattern = Pattern.compile("(?i).*\"mime_type\":\"(\\w+/\\w*)\",.*");
                             Matcher matcher = pattern.matcher(attachment);
                             if (matcher.matches()) {
                                 String mimeType = matcher.group(1);
@@ -451,27 +451,32 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                     switch (mimeType) {
                                         case "image/jpeg":
                                         case "image/gif":
-                                            Pattern srcPattern = Pattern.compile("src\\\\{3}\\\":\\\\{3}\\\"(http|https[-a-zA-Z0-9@:%._\\\\+~#=&?/]+)\\\\{3}\\\"}\\\\\\\"");
+                                            Pattern srcPattern = Pattern.compile("(?i)(https?[-a-zA-Z\\d@:%._\\\\+~#=&?/]+)\\\\{3}\"");
                                             matcher = srcPattern.matcher(attachment);
-                                            if (matcher.matches()) {
+                                            
+                                            while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
-                                                    urlAttachments.add(new URLAttachment(matcher.group(i)));
+                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
+                                                     urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
-
                                             }
+
                                             break;
                                         case "video/mp4": {
-                                            Pattern videoUrlPattern = Pattern.compile("(?i)\\\"video_data_url\\\":\\\"(http|https[-a-zA-Z0-9@:%._\\\\+~#=&?/]+)\\\"");
+                                            Pattern videoUrlPattern = Pattern.compile("(?i)\"video_data_url\":\"(https?[-a-zA-Z\\d@:%._\\\\+~#=&?/]+)\"");
                                             matcher = videoUrlPattern.matcher(attachment);
-                                            if (matcher.matches()) {
+                                            while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
-                                                    urlAttachments.add(new URLAttachment(matcher.group(i)));
+                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
+                                                     urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
-                                            videoUrlPattern = Pattern.compile("(?i)\\\"video_data_thumbnail_url\\\":\\\"(http|https[-a-zA-Z0-9@:%._\\\\+~#=&?/]+)\\\"");
+                                           
+                                            videoUrlPattern = Pattern.compile("(?i)\"video_data_thumbnail_url\":\"(https?[-a-zA-Z\\d@:%._\\\\+~#=&?/]+)\"");
                                             matcher = videoUrlPattern.matcher(attachment);
-                                            if (matcher.matches()) {
+                                            while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
+                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
                                                     urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
@@ -479,10 +484,11 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                         }
                                         case "audio/mp4":
                                         case "audio/mpeg": {
-                                            Pattern videoUrlPattern = Pattern.compile("(?i)\\\"audio_uri\\\":\\\"(http|https[-a-zA-Z0-9@:%._\\\\+~#=&?/]+)\\\"");
+                                            Pattern videoUrlPattern = Pattern.compile("(?i)\"audio_uri\":\"(https?[-a-zA-Z\\d@:%._\\\\+~#=&?/]+)\"");
                                             matcher = videoUrlPattern.matcher(attachment);
-                                            if (matcher.matches()) {
+                                           while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
+                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
                                                     urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
