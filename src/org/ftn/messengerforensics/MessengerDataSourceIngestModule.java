@@ -244,7 +244,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
     private void analyzeRecentSearchItems(AppSQLiteDB searchCacheDb, Content content) {
         logger.log(Level.INFO, "Method start: analyzeRecentSearchItems");
-        String query = "select fbid, item_type, display_name, first_name, last_name, picture_url, most_recent_pick_time_ms, total_pick_count from recent_search_items";
+        String query = "select fbid, item_type, display_name, first_name, last_name, picture_url from recent_search_items";
 
         try {
             ResultSet searchItemsSet = searchCacheDb.runQuery(query);
@@ -257,8 +257,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                     String fbid = searchItemsSet.getString("fbid");
                     String itemType = searchItemsSet.getString("item_type");
                     String displayName = searchItemsSet.getString("display_name");
-                    String firstName = searchItemsSet.getString("first_name");
-                    String lastname = searchItemsSet.getString("last_name");
+                    
                     String pictureUrl = searchItemsSet.getString("picture_url");
 
                     attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_USER_ID, moduleName, fbid));
@@ -272,7 +271,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                     }
 
                     attributes.add(new BlackboardAttribute(itemTypeAttributeType, moduleName, itemType));
-                    //TODO: Add attributes for most_recent_pick_time_ms, total_pick_count
+
                     BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
                             "RECENT_SEARCH_ITEMS", "Recent Search Items", BlackboardArtifact.Category.DATA_ARTIFACT);
 
@@ -287,12 +286,10 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
         } catch (SQLException exception) {
             logger.log(Level.SEVERE, exception.getMessage(), exception);
-        } catch (TskDataException exception) {
+        } catch (TskDataException | Blackboard.BlackboardException exception) {
             logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
         } catch (TskCoreException exception) {
             logger.log(Level.SEVERE, "Failed to add FB Messenger call log artifacts.", exception);
-        } catch (Blackboard.BlackboardException exception) {
-            logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
         }
 
         logger.log(Level.INFO, "Method end: analyzeRecentSearchItems");
@@ -438,7 +435,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
                     List<URLAttachment> urlAttachments = new ArrayList<>();
                     List<FileAttachment> fileAttachments = new ArrayList<>();
-//[{"id":"343651987283990","fbid":"343651987283990","mime_type":"text/plain","filename":"Program.cs","file_size":1542}]
+                    
                     if (attachment != null || pendingSendMediaAttachment != null) {
                         if (attachment != null) {
                             Pattern pattern = Pattern.compile("(?i).*\"mime_type\":\"(\\w+/\\w*)\",.*");
@@ -494,6 +491,12 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                             }
                                             break;
                                         }
+                                        case "text/plain": {
+                                            //[{"id":"343651987283990","fbid":"343651987283990","mime_type":"text/plain","filename":"Program.cs","file_size":1542}]
+                                           
+                                           
+                                            break;
+                                        }
                                         default:
                                             logger.log(Level.WARNING, "Attachment type not supported: {0}", mimeType);
                                             break;
@@ -503,7 +506,15 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                             }
                         }
                         if (pendingSendMediaAttachment != null) {
-                            // TODO: Deal with this
+                            Pattern uriPattern = Pattern.compile("(?i)\"uri\":\"([-a-zA-Z\\d@:%._\\\\+~#=&?/]+)\"");
+                            Matcher matcher = uriPattern.matcher(attachment);
+
+                            while (matcher.find()) {
+                                for (int i = 1; i <= matcher.groupCount(); i++) {
+                                    String attachmentUri = matcher.group(i).replace("file://", "");
+                                    fileAttachments.add(new FileAttachment(currentCase.getSleuthkitCase(), content, attachmentUri));
+                                }
+                            }
                         }
 
                         messageAttachments = new MessageAttachments(fileAttachments, urlAttachments);
@@ -717,7 +728,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
         logger.log(Level.INFO, "Method END: analyzeSearchItems");
     }
-
+//100005662605509
     private void analyzeStories(AppSQLiteDB msysDb, Content content) {
         logger.log(Level.INFO, "Method start: analyzeStories");
         String query = "select story_id, author_id, timestamp_ms, text, media_url, media_playable_url from stories";
