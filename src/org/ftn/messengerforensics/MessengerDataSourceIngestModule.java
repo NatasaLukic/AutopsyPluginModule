@@ -94,6 +94,14 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
             getAppVersion(prefsDbs, content);
             logger.log(Level.INFO, "App Version: " + VERSION);
+            
+            ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
+            attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_VERSION, moduleName, VERSION));
+            BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
+                            "FACEBOOK_MESSENGER_APPLICATION_VERSION", "Version of Application", BlackboardArtifact.Category.DATA_ARTIFACT);
+            BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
+            blackboard.postArtifact(artifact, moduleName);
+            
 
             for (AppSQLiteDB msysDb : msysDbs) {
                 logger.log(Level.INFO, " DbFilename: " + msysDb.getDBFile().getName());
@@ -641,7 +649,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
                         startTimeStamp = endTimeStamp - duration;
 
-                    } else {//same msgId as last, just collect callee
+                    } else {
                         logger.log(Level.INFO, "ISTA PORUKA\t msgId: " + msgId + "\toldMsgId: " + oldMsgId);
                         String recepientId = extractRecepientId(messagesResultSet.getString("user_key"));
 
@@ -690,8 +698,6 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                     String fbid = searchItemsSet.getString("fbid");
                     String itemType = searchItemsSet.getString("item_type");
                     String displayName = searchItemsSet.getString("display_name");
-                    String firstName = searchItemsSet.getString("first_name");
-                    String lastname = searchItemsSet.getString("last_name");
                     String pictureUrl = searchItemsSet.getString("picture_url");
 
                     attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_ID, moduleName, fbid));
@@ -728,11 +734,12 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
         logger.log(Level.INFO, "Method END: analyzeSearchItems");
     }
-//100005662605509
+    
     private void analyzeStories(AppSQLiteDB msysDb, Content content) {
         logger.log(Level.INFO, "Method start: analyzeStories");
         String query = "select story_id, author_id, timestamp_ms, text, media_url, media_playable_url from stories";
 
+        String bucketStoriesQuery = "SELECT B.bucket_id, B.owner_id, B.bucket_type, B.bucket_name, S.story_id, S.posting_status, S.type, S.optimistic_client_id, S.composer_session_id, S.author_id, S.timestamp_ms, S.ttl_ms, S.timestamp_ms + S.ttl_ms AS story_expiration_timestamp_ms, S.text, S.sticker_id, S.feed_encoded_id, S.media_id, S.media_type, S.media_url, S.media_url_expiration_timestamp_ms, S.media_fallback_url, S.media_width, S.media_height, S.media_playable_url, S.media_playable_url_expiration_timestamp_ms, S.media_playable_fallback_url, S.media_preview_url, S.media_preview_fallback_url, S.media_preview_url_expiration_timestamp_ms, S.media_preview_width, S.media_preview_height, S.media_thumbnail_url, S.media_thumbnail_fallback_url, S.media_thumbnail_url_expiration_timestamp_ms, S.media_thumbnail_width, S.media_thumbnail_height, S.background_gradient_color_top, S.background_gradient_color_bottom, S.caption_font_color, S.media_dash_manifest, S.attribution_text, S.authority_level IS 20 AS is_being_posted, S.authority_level IS 100 AS is_being_deleted, (julianday('now') - 2440587.5) * 86400000 - S.timestamp_ms > S.ttl_ms AS is_expired, (NOT RS.is_read) IS 0 AS is_read  FROM stories AS S INNER JOIN story_buckets AS B ON B.bucket_id = S.bucket_id LEFT OUTER JOIN read_stories AS RS ON RS.story_id = S.story_id";
         try {
             ResultSet searchItemsSet = msysDb.runQuery(query);
 
@@ -803,5 +810,9 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
         }
 
         logger.log(Level.INFO, "Method end: extractOwnerFacebookId");
+    }
+    
+    private void analyzeCache(){
+        
     }
 }
