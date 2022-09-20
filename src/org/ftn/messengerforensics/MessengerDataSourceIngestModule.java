@@ -108,7 +108,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
 
                 try {
                     extractOwnerFacebookId(msysDb);
-
+                    analyzeDevices(msysDb, content);
                     analyzeContacts(msysDb, content);
                     analyzeStories(msysDb, content);
 
@@ -160,6 +160,102 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
         }
     }
 
+    private void extractOwnerFacebookId(AppSQLiteDB msysDb) {
+        logger.log(Level.INFO, "Method start: extractOwnerFacebookId");
+        String query = "select id, facebook_user_id from _user_info";
+        try {
+            ResultSet resultSet = msysDb.runQuery(query);
+
+            if (resultSet != null) {
+
+                while (resultSet.next()) {
+                    ownerUserId = resultSet.getString("facebook_user_id");
+                }
+            }
+        } catch (SQLException exception) {
+            logger.log(Level.WARNING, exception.getMessage(), exception);
+        }
+
+        logger.log(Level.INFO, "Method end: extractOwnerFacebookId");
+    }
+    
+    private CommunicationDirection findCommunicationDirection(String senderId) {
+    CommunicationDirection direction = CommunicationDirection.UNKNOWN;
+    if (senderId != null) {
+        if (!senderId.equals(ownerUserId)) {
+            direction = CommunicationDirection.INCOMING;
+        } else {
+            direction = CommunicationDirection.OUTGOING;
+        }
+    }
+
+    return direction;
+    }
+
+    private String extractSenderId(String json) {
+        logger.log(Level.INFO, json);
+        String senderId = "";
+        if (json != null && !"".equals(json)) {
+
+            Pattern pattern = Pattern.compile(".*FACEBOOK:(\\d+).*");
+            Matcher matcher = pattern.matcher(json);
+            if (matcher.matches()) {
+                senderId = matcher.group(1);
+            }
+        }
+        return senderId;
+    }
+
+    private String extractSenderEmail(String json) {
+        String senderEmail = "";
+        if (json != null && json != "") {
+
+            Pattern pattern = Pattern.compile(".*email\":\"?(.*?)\"?,\".*");
+            Matcher matcher = pattern.matcher(json);
+            if (matcher.matches()) {
+                senderEmail = matcher.group(1);
+            }
+        }
+        return senderEmail;
+    }
+
+    private String extractSenderName(String json) {
+        String senderName = "";
+        if (json != null && !"".equals(json)) {
+            Pattern pattern = Pattern.compile(".*name\":\"?(.*?)\"?,\".*");
+            Matcher matcher = pattern.matcher(json);
+            if (matcher.matches()) {
+                senderName = matcher.group(1);
+            }
+        }
+        return senderName;
+    }
+
+    private String extractSenderPhone(String json) {
+        String senderPhone = "";
+        if (json != null && !"".equals(json)) {
+            Pattern pattern = Pattern.compile(".*phone\":\"?(.*?)\"?,\".*");
+            Matcher matcher = pattern.matcher(json);
+            if (matcher.matches()) {
+                senderPhone = matcher.group(1);
+            }
+        }
+        return senderPhone;
+    }
+
+    private String extractRecepientId(String user_key) {
+        String recepient = "";
+        if (user_key != null && !"".equals(user_key)) {
+            Pattern pattern = Pattern.compile("(?i)\\w+:(\\d+)");
+            Matcher matcher = pattern.matcher(user_key);
+            if (matcher.matches()) {
+                recepient = matcher.group(1);
+            }
+        }
+
+        return recepient;
+    }
+    
     private void getAppVersion(Collection<AppSQLiteDB> prefsDbs, Content content) throws TskCoreException {
         String query = "SELECT key, type, value FROM preferences WHERE key LIKE '%app_version_name_current%'";
 
@@ -303,83 +399,6 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
         logger.log(Level.INFO, "Method end: analyzeRecentSearchItems");
     }
 
-    private CommunicationDirection findCommunicationDirection(String senderId) {
-        CommunicationDirection direction = CommunicationDirection.UNKNOWN;
-        if (senderId != null) {
-            if (!senderId.equals(ownerUserId)) {
-                direction = CommunicationDirection.INCOMING;
-            } else {
-                direction = CommunicationDirection.OUTGOING;
-            }
-        }
-
-        return direction;
-    }
-
-    private String extractSenderId(String json) {
-        logger.log(Level.INFO, json);
-        String senderId = "";
-        if (json != null && !"".equals(json)) {
-
-            Pattern pattern = Pattern.compile(".*FACEBOOK:(\\d+).*");
-            Matcher matcher = pattern.matcher(json);
-            if (matcher.matches()) {
-                senderId = matcher.group(1);
-            }
-        }
-        return senderId;
-    }
-
-    private String extractSenderEmail(String json) {
-        String senderEmail = "";
-        if (json != null && json != "") {
-
-            Pattern pattern = Pattern.compile(".*email\":\"?(.*?)\"?,\".*");
-            Matcher matcher = pattern.matcher(json);
-            if (matcher.matches()) {
-                senderEmail = matcher.group(1);
-            }
-        }
-        return senderEmail;
-    }
-
-    private String extractSenderName(String json) {
-        String senderName = "";
-        if (json != null && !"".equals(json)) {
-            Pattern pattern = Pattern.compile(".*name\":\"?(.*?)\"?,\".*");
-            Matcher matcher = pattern.matcher(json);
-            if (matcher.matches()) {
-                senderName = matcher.group(1);
-            }
-        }
-        return senderName;
-    }
-
-    private String extractSenderPhone(String json) {
-        String senderPhone = "";
-        if (json != null && !"".equals(json)) {
-            Pattern pattern = Pattern.compile(".*phone\":\"?(.*?)\"?,\".*");
-            Matcher matcher = pattern.matcher(json);
-            if (matcher.matches()) {
-                senderPhone = matcher.group(1);
-            }
-        }
-        return senderPhone;
-    }
-
-    private String extractRecepientId(String user_key) {
-        String recepient = "";
-        if (user_key != null && !"".equals(user_key)) {
-            Pattern pattern = Pattern.compile("(?i)\\w+:(\\d+)");
-            Matcher matcher = pattern.matcher(user_key);
-            if (matcher.matches()) {
-                recepient = matcher.group(1);
-            }
-        }
-
-        return recepient;
-    }
-
     private void analyzeMessages(AppSQLiteDB threadsDb, Content content) throws TskCoreException, Blackboard.BlackboardException {
         logger.log(Level.INFO, "Method start: analyzeMessages");
         try {
@@ -461,7 +480,6 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                             
                                             while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
-                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
                                                      urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
@@ -472,7 +490,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                             matcher = videoUrlPattern.matcher(attachment);
                                             while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
-                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
+                                                    //logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
                                                      urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
@@ -481,7 +499,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                             matcher = videoUrlPattern.matcher(attachment);
                                             while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
-                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
+                                                    //logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
                                                     urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
@@ -493,7 +511,7 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
                                             matcher = videoUrlPattern.matcher(attachment);
                                            while (matcher.find()) {
                                                 for (int i = 1; i <= matcher.groupCount(); i++) {
-                                                    logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
+                                                    //logger.log(Level.INFO, "Group " + i + ": " + matcher.group(i));
                                                     urlAttachments.add(new URLAttachment(matcher.group(i)));
                                                 }
                                             }
@@ -793,26 +811,94 @@ public class MessengerDataSourceIngestModule implements DataSourceIngestModule {
         logger.log(Level.INFO, "Method END: analyzeStories");
     }
 
-    private void extractOwnerFacebookId(AppSQLiteDB msysDb) {
-        logger.log(Level.INFO, "Method start: extractOwnerFacebookId");
-        String query = "select id, facebook_user_id from _user_info";
+    private void analyzeDevices(AppSQLiteDB msysDb, Content content){
+        logger.log(Level.INFO, "Method start: analyzeDevices");
+        String query = "select crypto_mailbox_type, device_id, platform, manufacturer, model, last_seen_timestamp_seconds, registration_timestamp_seconds, latitude, longitude, location, ip from secure_message_peer_devices_v2";
+
         try {
             ResultSet resultSet = msysDb.runQuery(query);
 
             if (resultSet != null) {
+                ArrayList<BlackboardArtifact> artifacts = new ArrayList<>();
+                ArrayList<BlackboardAttribute> attributes = new ArrayList<>();
 
                 while (resultSet.next()) {
-                    ownerUserId = resultSet.getString("facebook_user_id");
+                    int crypto_mailbox_type = resultSet.getInt("crypto_mailbox_type");
+                    int device_id = resultSet.getInt("device_id");
+                    long last_seen_timestamp_seconds = resultSet.getLong("last_seen_timestamp_seconds") / 1000;
+                    long registration_timestamp_seconds = resultSet.getLong("registration_timestamp_seconds") / 1000;
+                    double latitude = resultSet.getDouble("latitude");
+                    double longitude = resultSet.getDouble("longitude");
+                    String platform = resultSet.getString("platform");
+                    String manufacturer = resultSet.getString("manufacturer");
+                    String model = resultSet.getString("model");
+                    String location = resultSet.getString("location");
+                    String ip = resultSet.getString("ip");
+
+                    
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DEVICE_MODEL, moduleName, model));
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DEVICE_MAKE, moduleName, manufacturer));
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_DEVICE_ID, moduleName,  String.valueOf(device_id)));
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_LOCATION, moduleName, location));
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_GEO_LATITUDE, moduleName, latitude));
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_GEO_LONGITUDE, moduleName, longitude));
+                    attributes.add(new BlackboardAttribute(BlackboardAttribute.ATTRIBUTE_TYPE.TSK_IP_ADDRESS, moduleName, ip));
+
+                    BlackboardAttribute.Type platformAttr = currentCase.getSleuthkitCase().getAttributeType("PLATFORM");
+                    if (platformAttr == null) {
+                        platformAttr = currentCase.getSleuthkitCase().addArtifactAttributeType("PLATFORM",
+                                BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.STRING, "Platform");
+                    }
+                    
+                    BlackboardAttribute.Type cryptoMailboxTypeAttr = currentCase.getSleuthkitCase().getAttributeType("CRYPTO_MAILBOX_TYPE");
+                    if (cryptoMailboxTypeAttr == null) {
+                        cryptoMailboxTypeAttr = currentCase.getSleuthkitCase().addArtifactAttributeType("CRYPTO_MAILBOX_TYPE",
+                                BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.INTEGER, "CRYPTO_MAILBOX_TYPE");
+                    }
+                    BlackboardAttribute.Type lastSeenAttr = currentCase.getSleuthkitCase().getAttributeType("LAST_SEEN_TIMESTAMP");
+                    if (lastSeenAttr == null) {
+                        lastSeenAttr = currentCase.getSleuthkitCase().addArtifactAttributeType("LAST_SEEN_TIMESTAMP",
+                                BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.DATETIME, "LAST_SEEN_TIMESTAMP");
+                    }
+                    BlackboardAttribute.Type registrationAttr = currentCase.getSleuthkitCase().getAttributeType("REGISTRATION_TIMESTAMP");
+                    if (registrationAttr == null) {
+                        registrationAttr = currentCase.getSleuthkitCase().addArtifactAttributeType("REGISTRATION_TIMESTAMP",
+                                BlackboardAttribute.TSK_BLACKBOARD_ATTRIBUTE_VALUE_TYPE.DATETIME, "REGISTRATION_TIMESTAMP");
+                    }
+
+                    attributes.add(new BlackboardAttribute(platformAttr, moduleName, platform));
+                    attributes.add(new BlackboardAttribute(cryptoMailboxTypeAttr, moduleName, crypto_mailbox_type));
+                    attributes.add(new BlackboardAttribute(lastSeenAttr, moduleName, last_seen_timestamp_seconds));
+                    attributes.add(new BlackboardAttribute(registrationAttr, moduleName, registration_timestamp_seconds));
+                    
+
+                    BlackboardArtifact.Type artifactType = Case.getCurrentCase().getSleuthkitCase().getBlackboard().getOrAddArtifactType(
+                            "DEVICES", "Devices", BlackboardArtifact.Category.DATA_ARTIFACT);
+
+                    BlackboardArtifact artifact = content.newDataArtifact(artifactType, attributes);
+                    artifacts.add(artifact);
+
                 }
+
+                blackboard.postArtifacts(artifacts, moduleName);
             }
+
         } catch (SQLException exception) {
-            logger.log(Level.WARNING, exception.getMessage(), exception);
+            logger.log(Level.SEVERE, exception.getMessage(), exception);
+        } catch (TskDataException exception) {
+            logger.log(Level.SEVERE, "Failed to create attribute type.", exception);
+        } catch (TskCoreException exception) {
+            logger.log(Level.SEVERE, "Failed to create artifact.", exception);
+        } catch (Blackboard.BlackboardException exception) {
+            logger.log(Level.SEVERE, "Failed to post artifacts.", exception);
         }
 
-        logger.log(Level.INFO, "Method end: extractOwnerFacebookId");
+        logger.log(Level.INFO, "Method END: analyzeDevices");
     }
+    
     
     private void analyzeCache(){
         
     }
+    
 }
